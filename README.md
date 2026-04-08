@@ -1,112 +1,100 @@
 # AWS EKS DevOps Platform
-This project demonstrates a production-like DevOps setup using:
-- AWS EKS
+
+This project demonstrates a production-like DevOps setup using AWS EKS and Terraform.
+
+## Tech Stack
+
 - Terraform
+- AWS (VPC, S3, EKS)
 - Jenkins
 - Docker
-- Prometheus & Grafana
-- Loki
-## Architecture
-(to be updated)
+- Prometheus/Grafana/Loki
 
-🏗️ Current Features
+## Current Terraform Scope
 
-Infrastructure Provisioning (Terraform)
-	•	Provisioned AWS VPC with custom CIDR
-	•	Created multi-AZ architecture:
-	•	Public subnets
-	•	Private subnets
-	•	Configured Internet Gateway and public routing
-	•	Applied Kubernetes-ready subnet tagging
+- Reusable VPC module: `terraform/modules/vpc`
+- EKS module (in progress): `terraform/modules/eks`
+- Environment roots:
+  - `terraform/envs/dev`
+  - `terraform/envs/staging`
+  - `terraform/envs/prod`
+- Bootstrap for remote state: `terraform/bootstrap`
 
-⸻
+## Remote State Strategy (Best Practice)
 
-Modular Infrastructure Design
-	•	Refactored Terraform code into reusable modules
-	•	Separated environment-specific configuration (envs/dev)
-	•	Improved maintainability and scalability of infrastructure code
+State is isolated by environment. We keep the naming convention:
 
-⸻
+- `aws-eks-devops-platform-dev-tfstate`
+- `aws-eks-devops-platform-staging-tfstate`
+- `aws-eks-devops-platform-prod-tfstate`
 
-Remote State Management
-	•	Implemented remote state using AWS S3
-	•	Enabled:
-	•	Versioning for state recovery
-	•	Server-side encryption
-	•	Configured native state locking (use_lockfile = true)
-	•	Migrated local state to remote backend
+Each environment uses:
 
-⸻
+- A dedicated S3 backend bucket
+- A dedicated state key (`terraform.tfstate`) in that bucket
+- S3 native locking (`use_lockfile = true`)
+- Versioning + encryption enabled at bucket level (created by bootstrap)
 
-Bootstrap Infrastructure
-	•	Created dedicated bootstrap Terraform configuration
-	•	Automated S3 bucket provisioning for state management
-	•	Follows best practice naming convention: `<project>-<env>-tfstate`
-	•	Includes security hardening:
-	•	S3 bucket versioning and encryption
-	•	Public access blocking
-	•	Native S3 state locking (`use_lockfile = true`)
-	•	Modular file structure (versions.tf, providers.tf, variables.tf, main.tf, outputs.tf)
+This prevents accidental cross-environment impact and follows enterprise-style isolation.
 
-⸻
+## Bootstrap Backend Buckets
 
-🛠️ Tech Stack
-	•	Terraform
-	•	AWS (VPC, S3)
-	•	GitHub
+Run bootstrap once per environment to create the backend S3 bucket.
 
-⸻
+### Dev
 
-📋 Quick Start
+```bash
+cd terraform/bootstrap
+terraform init
+terraform apply -var="environment=dev"
+```
 
-1. **Bootstrap Infrastructure** (First-time setup)
-   ```bash
-   cd terraform/bootstrap
-   terraform init
-   terraform plan
-   terraform apply
-   ```
+### Staging
 
-2. **Configure Remote State** (After bootstrap)
-   Update your Terraform configurations to use the remote backend:
-   ```hcl
-   terraform {
-     backend "s3" {
-       bucket       = "<project>-<env>-tfstate"
-       key          = "terraform.tfstate"
-       region       = "ap-southeast-1"
-       use_lockfile = true
-       encrypt      = true
-     }
-   }
-   ```
+```bash
+cd terraform/bootstrap
+terraform apply -var="environment=staging"
+```
 
-3. **Deploy Infrastructure**
-   ```bash
-   cd terraform/envs/dev
-   terraform init
-   terraform plan
-   terraform apply
-   ```
+### Prod
 
-⸻
+```bash
+cd terraform/bootstrap
+terraform apply -var="environment=prod"
+```
 
-🚀 Roadmap (In Progress)
+## Deploy By Environment
 
-The platform is being extended to include:
-	•	NAT Gateway and private routing
-	•	Amazon EKS cluster provisioning
-	•	CI/CD pipeline with Jenkins
-	•	Containerization with Docker
-	•	Monitoring (Prometheus & Grafana)
-	•	Centralized logging
+### Dev
 
-⸻
+```bash
+cd terraform/envs/dev
+terraform init
+terraform plan
+terraform apply
+```
 
-🎯 Goal
+### Staging
 
-To build a complete, production-like DevOps platform on AWS covering:
-	•	Infrastructure as Code
-	•	Kubernetes orchestration
-	•	CI/CD automation
-	•	Observability
+```bash
+cd terraform/envs/staging
+terraform init
+terraform plan
+terraform apply
+```
+
+### Prod
+
+```bash
+cd terraform/envs/prod
+terraform init
+terraform plan
+terraform apply
+```
+
+## Terraform Notes
+
+- Each folder with `main.tf` is a separate Terraform root module.
+- Root modules consume child module outputs only (for example `module.vpc.vpc_id`).
+- Do not reference child resources directly across module boundaries.
+- Review `docs/terraform_plan.md` for the step-by-step hands-on learning path.

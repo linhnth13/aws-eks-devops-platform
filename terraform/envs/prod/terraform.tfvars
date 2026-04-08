@@ -1,0 +1,6 @@
+primary_region   = "ap-southeast-1"
+secondary_region = "ap-southeast-2"
+primary_az       = "ap-southeast-1a"
+secondary_az     = "ap-southeast-2a"
+project_name     = "aws-eks-devops-platform"
+environment      = "prod"

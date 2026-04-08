@@ -4,6 +4,20 @@ locals {
     Environment = var.environment
     ManagedBy   = "Terraform"
   }
+
+  az_map = {
+    for idx, az in var.azs : az => idx
+  }
+
+  public_subnet_cidrs = {
+    for az, idx in local.az_map : az => cidrsubnet(var.vpc_cidr, 8, idx)
+  }
+
+  private_subnet_cidrs = {
+    for az, idx in local.az_map : az => cidrsubnet(var.vpc_cidr, 8, idx + 100)
+  }
+
+  primary_az = sort(keys(local.az_map))[0]
 }
 
 resource "aws_vpc" "this" {
@@ -24,52 +38,31 @@ resource "aws_internet_gateway" "this" {
   })
 }
 
-resource "aws_subnet" "public_1" {
+resource "aws_subnet" "public" {
+  for_each = local.az_map
+
   vpc_id                  = aws_vpc.this.id
-  cidr_block              = var.public_subnet_1_cidr
-  availability_zone       = var.az_1
+  cidr_block              = local.public_subnet_cidrs[each.key]
+  availability_zone       = each.key
   map_public_ip_on_launch = true
 
   tags = merge(local.common_tags, {
-    Name = "${var.project_name}-${var.environment}-public-1"
-    "kubernetes.io/role/elb" = "1"
+    Name                                                           = "${var.project_name}-${var.environment}-public-${each.key}"
+    "kubernetes.io/role/elb"                                       = "1"
     "kubernetes.io/cluster/${var.project_name}-${var.environment}" = "shared"
   })
 }
 
-resource "aws_subnet" "public_2" {
-  vpc_id                  = aws_vpc.this.id
-  cidr_block              = var.public_subnet_2_cidr
-  availability_zone       = var.az_2
-  map_public_ip_on_launch = true
+resource "aws_subnet" "private" {
+  for_each = local.az_map
 
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-${var.environment}-public-2"
-    "kubernetes.io/role/elb" = "1"
-    "kubernetes.io/cluster/${var.project_name}-${var.environment}" = "shared"
-  })
-}
-
-resource "aws_subnet" "private_1" {
   vpc_id            = aws_vpc.this.id
-  cidr_block        = var.private_subnet_1_cidr
-  availability_zone = var.az_1
+  cidr_block        = local.private_subnet_cidrs[each.key]
+  availability_zone = each.key
 
   tags = merge(local.common_tags, {
-    Name = "${var.project_name}-${var.environment}-private-1"
-    "kubernetes.io/role/internal-elb" = "1"
-    "kubernetes.io/cluster/${var.project_name}-${var.environment}" = "shared"
-  })
-}
-
-resource "aws_subnet" "private_2" {
-  vpc_id            = aws_vpc.this.id
-  cidr_block        = var.private_subnet_2_cidr
-  availability_zone = var.az_2
-
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-${var.environment}-private-2"
-    "kubernetes.io/role/internal-elb" = "1"
+    Name                                                           = "${var.project_name}-${var.environment}-private-${each.key}"
+    "kubernetes.io/role/internal-elb"                              = "1"
     "kubernetes.io/cluster/${var.project_name}-${var.environment}" = "shared"
   })
 }
@@ -88,12 +81,55 @@ resource "aws_route" "public_internet_access" {
   gateway_id             = aws_internet_gateway.this.id
 }
 
-resource "aws_route_table_association" "public_1" {
-  subnet_id      = aws_subnet.public_1.id
+resource "aws_route_table_association" "public" {
+  for_each = aws_subnet.public
+
+  subnet_id      = each.value.id
   route_table_id = aws_route_table.public.id
 }
 
-resource "aws_route_table_association" "public_2" {
-  subnet_id      = aws_subnet.public_2.id
-  route_table_id = aws_route_table.public.id
+resource "aws_eip" "nat" {
+  count = var.enable_nat_gateway ? 1 : 0
+
+  domain = "vpc"
+
+  tags = merge(local.common_tags, {
+    Name = "${var.project_name}-${var.environment}-nat-eip"
+  })
+}
+
+resource "aws_nat_gateway" "this" {
+  count = var.enable_nat_gateway ? 1 : 0
+
+  allocation_id = aws_eip.nat[0].id
+  subnet_id     = aws_subnet.public[local.primary_az].id
+
+  tags = merge(local.common_tags, {
+    Name = "${var.project_name}-${var.environment}-nat"
+  })
+
+  depends_on = [aws_internet_gateway.this]
+}
+
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.this.id
+
+  tags = merge(local.common_tags, {
+    Name = "${var.project_name}-${var.environment}-private-rt"
+  })
+}
+
+resource "aws_route" "private_nat_access" {
+  count = var.enable_nat_gateway ? 1 : 0
+
+  route_table_id         = aws_route_table.private.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.this[0].id
+}
+
+resource "aws_route_table_association" "private" {
+  for_each = aws_subnet.private
+
+  subnet_id      = each.value.id
+  route_table_id = aws_route_table.private.id
 }

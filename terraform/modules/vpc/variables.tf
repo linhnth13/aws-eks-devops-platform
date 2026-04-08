@@ -10,26 +10,16 @@ variable "vpc_cidr" {
   type = string
 }
 
-variable "public_subnet_1_cidr" {
-  type = string
+variable "azs" {
+  type = list(string)
+
+  validation {
+    condition     = length(var.azs) > 0
+    error_message = "azs must contain at least one availability zone."
+  }
 }
 
-variable "public_subnet_2_cidr" {
-  type = string
-}
-
-variable "private_subnet_1_cidr" {
-  type = string
-}
-
-variable "private_subnet_2_cidr" {
-  type = string
-}
-
-variable "az_1" {
-  type = string
-}
-
-variable "az_2" {
-  type = string
+variable "enable_nat_gateway" {
+  type    = bool
+  default = true
 }
